@@ -79,7 +79,21 @@ class PoinTr(nn.Module):
         )
         self.reduce_map = nn.Linear(self.trans_dim + 1027, self.trans_dim)
         self.build_loss_func()
+        self.disable_batch_and_group_norm = config.disable_batch_and_group_norm
+        if self.disable_batch_and_group_norm:
+            self.replace_bn()
 
+    def replace_bn(self):
+        """Replace BatchNorm layers with identity."""
+        def _replace_bn(module):
+            for name, child in module.named_children():
+                if isinstance(child, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+                    setattr(module, name, nn.Identity())
+                else:
+                    _replace_bn(child)
+
+        _replace_bn(self)
+    
     def build_loss_func(self):
         self.loss_func = ChamferDistanceL1()
 

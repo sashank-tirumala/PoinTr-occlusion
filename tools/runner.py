@@ -16,6 +16,7 @@ def run_net(args, config, train_writer=None, val_writer=None):
     (train_sampler, train_dataloader), (_, test_dataloader) = builder.dataset_builder(args, config.dataset.train), \
                                                             builder.dataset_builder(args, config.dataset.val)
     # build model
+    config.model.disable_batch_and_group_norm = config.total_bs < 32
     base_model = builder.model_builder(config.model)
     if args.use_gpu:
         base_model.to(args.local_rank)
@@ -90,7 +91,7 @@ def run_net(args, config, train_writer=None, val_writer=None):
 
         base_model.train()  # set model to training mode
         n_batches = len(train_dataloader)
-        for idx, (taxonomy_ids, model_ids, data) in enumerate(train_dataloader):
+        for idx, (taxonomy_ids, model_ids, data, info) in enumerate(train_dataloader):
             data_time.update(time.time() - batch_start_time)
             npoints = config.dataset.train._base_.N_POINTS
             dataset_name = config.dataset.train._base_.NAME
@@ -106,6 +107,13 @@ def run_net(args, config, train_writer=None, val_writer=None):
             elif 'ShapeNet' in dataset_name:
                 gt = data.cuda()
                 partial, _ = misc.seprate_point_cloud(gt, npoints, [int(npoints * 1/4) , int(npoints * 3/4)], fixed_points = None)
+                partial = partial.cuda()
+            
+            elif 'Dynamics' in dataset_name:
+                gt = data.cuda()  # B x N (2209) x 3
+                partial = misc.separate_point_cloud_knownpartial(
+                        gt, info["vis_mask"]
+                    )
                 partial = partial.cuda()
             else:
                 raise NotImplementedError(f'Train phase do not support {dataset_name}')
@@ -192,9 +200,10 @@ def validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val
     n_samples = len(test_dataloader) # bs is 1
 
     interval =  n_samples // 10
+    interval = 1 if interval == 0 else interval
 
     with torch.no_grad():
-        for idx, (taxonomy_ids, model_ids, data) in enumerate(test_dataloader):
+        for idx, (taxonomy_ids, model_ids, data, info) in enumerate(test_dataloader):
             taxonomy_id = taxonomy_ids[0] if isinstance(taxonomy_ids[0], str) else taxonomy_ids[0].item()
             model_id = model_ids[0]
 
@@ -207,6 +216,14 @@ def validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val
                 gt = data.cuda()
                 partial, _ = misc.seprate_point_cloud(gt, npoints, [int(npoints * 1/4) , int(npoints * 3/4)], fixed_points = None)
                 partial = partial.cuda()
+            
+            elif 'Dynamics' in dataset_name:
+                gt = data.cuda()  # B x N (2209) x 3
+                partial = misc.separate_point_cloud_knownpartial(
+                        gt, info["vis_mask"]
+                    )
+                partial = partial.cuda()
+            
             else:
                 raise NotImplementedError(f'Train phase do not support {dataset_name}')
 
@@ -288,7 +305,7 @@ def validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val
         msg += (str(category_metrics[taxonomy_id].count(0)) + '\t')
         for value in category_metrics[taxonomy_id].avg():
             msg += '%.3f \t' % value
-        msg += shapenet_dict[taxonomy_id] + '\t'
+        # msg += shapenet_dict[taxonomy_id] + '\t'
         print_log(msg, logger=logger)
 
     msg = ''
@@ -445,7 +462,7 @@ def test(base_model, test_dataloader, ChamferDisL1, ChamferDisL2, args, config, 
         msg += (str(category_metrics[taxonomy_id].count(0)) + '\t')
         for value in category_metrics[taxonomy_id].avg():
             msg += '%.3f \t' % value
-        msg += shapenet_dict[taxonomy_id] + '\t'
+        # msg += shapenet_dict[taxonomy_id] + '\t'
         print_log(msg, logger=logger)
 
     msg = ''

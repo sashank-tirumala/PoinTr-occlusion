@@ -204,6 +204,21 @@ def seprate_point_cloud(xyz, num_points, crop, fixed_points = None, padding_zero
 
     return input_data.contiguous(), crop_data.contiguous()
 
+
+def separate_point_cloud_knownpartial(gt, vis_mask):
+    vis_mask = vis_mask.bool()
+    partial = []
+    for b_item in range(gt.shape[0]):
+        pc = gt[b_item]
+        mask = vis_mask[b_item]
+        pc_vis = pc[mask].unsqueeze(0)
+        part = fps(pc_vis, 2048)
+        partial.append(part)
+
+    partial = torch.cat(partial, dim=0)  # B N 3
+    return partial.contiguous()
+
+
 def get_ptcloud_img(ptcloud):
     fig = plt.figure(figsize=(8, 8))
 
