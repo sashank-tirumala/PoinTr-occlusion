@@ -2,6 +2,7 @@ import torch
 from torch import nn
 
 from pointnet2_ops import pointnet2_utils
+from pointnet2_sem_seg import get_model
 from extensions.chamfer_dist import ChamferDistanceL1
 from .Transformer import PCTransformer_dynamics
 from .build import MODELS
@@ -67,6 +68,8 @@ class PoinTr_dynamics(nn.Module):
         self.num_query = config.num_query
 
         self.fold_step = int(pow(self.num_pred//self.num_query, 0.5) + 0.5)
+        self.pointnet = torch.load(config.pointnet_path)
+        breakpoint()
         self.base_model = PCTransformer_dynamics(in_chans = 3, embed_dim = self.trans_dim, depth = [6, 8], drop_rate = 0., num_query = self.num_query, knn_layer = self.knn_layer)
         
         self.foldingnet = Fold(self.trans_dim, step = self.fold_step, hidden_dim = 256)  # rebuild a cluster point
@@ -79,7 +82,6 @@ class PoinTr_dynamics(nn.Module):
         )
         self.reduce_map = nn.Linear(self.trans_dim + 1027, self.trans_dim)
         self.build_loss_func()
-        self.pointnet = torch.load(config.pointnet_path)
 
     def build_loss_func(self):
         self.loss_func = ChamferDistanceL1()
