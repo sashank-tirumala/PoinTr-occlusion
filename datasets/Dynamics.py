@@ -13,7 +13,7 @@ from pathlib import Path
 class Dynamics(data.Dataset):
     def __init__(self, config):
         self.data_root = config.DATA_PATH
-        self.pc_path = config.PC_PATH
+        self.pc_path = Path(config.PC_PATH)
         self.subset = config.subset
         self.npoints = config.N_POINTS
         self.data_list_file = os.path.join(self.data_root, f"{self.subset}.txt")
@@ -25,10 +25,10 @@ class Dynamics(data.Dataset):
         self.file_list = []
         for line in lines:
             line = line.strip()
-            taxonomy_id = line.split("-")[0]
-            model_id = line.split("-")[1].split(".")[0]
+            taxonomy_id = 0
+            model_id = 0
             self.file_list.append(
-                {"taxonomy_id": taxonomy_id, "model_id": model_id, "file_path": line}
+                {"taxonomy_id": taxonomy_id, "model_id": model_id, "file_path": self.pc_path / line}
             )
         print(f"[DATASET] {len(self.file_list)} instances were loaded")
 

@@ -426,3 +426,169 @@ class PCTransformer(nn.Module):
 
         return q, coarse_point_cloud
 
+
+
+class PCTransformer_dynamics(nn.Module):
+    """ Vision Transformer with support for point cloud completion
+    """
+    def __init__(self, in_chans=3, embed_dim=768, depth=[6, 6], num_heads=6, mlp_ratio=2., qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
+                        num_query = 224, knn_layer = -1):
+        super().__init__()
+
+        self.num_features = self.embed_dim = embed_dim
+        
+        self.knn_layer = knn_layer
+
+        print_log(' Transformer with knn_layer %d' % self.knn_layer, logger='MODEL')
+
+        self.grouper = DGCNN_Grouper()  # B 3 N to B C(3) N(128) and B C(128) N(128)
+
+        self.pos_embed = nn.Sequential(
+            nn.Conv1d(in_chans, 128, 1),
+            nn.BatchNorm1d(128),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Conv1d(128, embed_dim, 1)
+        )
+        # self.pos_embed_wave = nn.Sequential(
+        #     nn.Conv1d(60, 128, 1),
+        #     nn.BatchNorm1d(128),
+        #     nn.LeakyReLU(negative_slope=0.2),
+        #     nn.Conv1d(128, embed_dim, 1)
+        # )
+
+        # self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        # self.cls_pos = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.input_proj = nn.Sequential(
+            nn.Conv1d(128, embed_dim, 1),
+            nn.BatchNorm1d(embed_dim),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Conv1d(embed_dim, embed_dim, 1)
+        )
+
+        self.encoder = nn.ModuleList([
+            Block(
+                dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                drop=drop_rate, attn_drop=attn_drop_rate)
+            for i in range(depth[0])])
+
+        # self.increase_dim = nn.Sequential(
+        #     nn.Linear(embed_dim,1024),
+        #     nn.ReLU(inplace=True),
+        #     nn.Linear(1024, 1024)
+        # )
+
+        self.increase_dim = nn.Sequential(
+            nn.Conv1d(embed_dim, 1024, 1),
+            nn.BatchNorm1d(1024),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Conv1d(1024, 1024, 1)
+        )
+
+        self.num_query = num_query
+        self.coarse_pred = nn.Sequential(
+            nn.Linear(1024, 1024),
+            nn.ReLU(inplace=True),
+            nn.Linear(1024, 3 * num_query)
+        )
+        self.mlp_query = nn.Sequential(
+            nn.Conv1d(1024 + 3, 1024, 1),
+            # nn.BatchNorm1d(1024),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Conv1d(1024, 1024, 1),
+            # nn.BatchNorm1d(1024),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Conv1d(1024, embed_dim, 1)
+        )
+
+        self.decoder = nn.ModuleList([
+            DecoderBlock(
+                dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                drop=drop_rate, attn_drop=attn_drop_rate)
+            for i in range(depth[1])])
+
+        # trunc_normal_(self.cls_token, std=.02)
+        # trunc_normal_(self.cls_pos, std=.02)
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+        elif isinstance(m, nn.Conv1d):
+            nn.init.xavier_normal_(m.weight.data, gain=1)
+        elif isinstance(m, nn.BatchNorm1d):
+            nn.init.constant_(m.weight.data, 1)
+            nn.init.constant_(m.bias.data, 0)
+
+    def pos_encoding_sin_wave(self, coor):
+        # ref to https://arxiv.org/pdf/2003.08934v2.pdf
+        D = 64 #
+        # normal the coor into [-1, 1], batch wise
+        normal_coor = 2 * ((coor - coor.min()) / (coor.max() - coor.min())) - 1 
+
+        # define sin wave freq
+        freqs = torch.arange(D, dtype=torch.float).cuda() 
+        freqs = np.pi * (2**freqs)       
+
+        freqs = freqs.view(*[1]*len(normal_coor.shape), -1) # 1 x 1 x 1 x D
+        normal_coor = normal_coor.unsqueeze(-1) # B x 3 x N x 1
+        k = normal_coor * freqs # B x 3 x N x D
+        s = torch.sin(k) # B x 3 x N x D
+        c = torch.cos(k) # B x 3 x N x D
+        x = torch.cat([s,c], -1) # B x 3 x N x 2D
+        pos = x.transpose(-1,-2).reshape(coor.shape[0], -1, coor.shape[-1]) # B 6D N
+        # zero_pad = torch.zeros(x.size(0), 2, x.size(-1)).cuda()
+        # pos = torch.cat([x, zero_pad], dim = 1)
+        # pos = self.pos_embed_wave(x)
+        return pos
+
+    def forward(self, inpc):
+        '''
+            inpc : input incomplete point cloud with shape B N(2048) C(3)
+        '''
+        # build point proxy
+        breakpoint()
+        bs = inpc.size(0)
+        coor, f = self.grouper(inpc.transpose(1,2).contiguous()) 
+        knn_index = get_knn_index(coor)
+        # NOTE: try to use a sin wave  coor B 3 N, change the pos_embed input dim
+        # pos = self.pos_encoding_sin_wave(coor).transpose(1,2)
+        pos =  self.pos_embed(coor).transpose(1,2)
+        x = self.input_proj(f).transpose(1,2)
+        # cls_pos = self.cls_pos.expand(bs, -1, -1)
+        # cls_token = self.cls_pos.expand(bs, -1, -1)
+        # x = torch.cat([cls_token, x], dim=1)
+        # pos = torch.cat([cls_pos, pos], dim=1)
+        # encoder
+        for i, blk in enumerate(self.encoder):
+            if i < self.knn_layer:
+                x = blk(x + pos, knn_index)   # B N C
+            else:
+                x = blk(x + pos)
+        # build the query feature for decoder
+        # global_feature  = x[:, 0] # B C
+
+        global_feature = self.increase_dim(x.transpose(1,2)) # B 1024 N 
+        global_feature = torch.max(global_feature, dim=-1)[0] # B 1024
+
+        coarse_point_cloud = self.coarse_pred(global_feature).reshape(bs, -1, 3)  #  B M C(3)
+
+        new_knn_index = get_knn_index(coarse_point_cloud.transpose(1, 2).contiguous())
+        cross_knn_index = get_knn_index(coor_k=coor, coor_q=coarse_point_cloud.transpose(1, 2).contiguous())
+
+        query_feature = torch.cat([
+            global_feature.unsqueeze(1).expand(-1, self.num_query, -1), 
+            coarse_point_cloud], dim=-1) # B M C+3 
+        q = self.mlp_query(query_feature.transpose(1,2)).transpose(1,2) # B M C 
+        # decoder
+        for i, blk in enumerate(self.decoder):
+            if i < self.knn_layer:
+                q = blk(q, x, new_knn_index, cross_knn_index)   # B M C
+            else:
+                q = blk(q, x)
+
+        return q, coarse_point_cloud
