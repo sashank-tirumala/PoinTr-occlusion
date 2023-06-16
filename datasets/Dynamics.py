@@ -48,12 +48,33 @@ class Dynamics(data.Dataset):
         data = np.load(file_path/ "curr_object_pcd.npy").astype(np.float32)
         vis_mask = np.load(file_path / "curr_visibility_mask.npy").astype(np.float32)
         data = data[:, :3]
-        data, _, _ = Dynamics.pc_norm(data)
+        data_norm, _ , _ = Dynamics.pc_norm(data)
+        
+        pc_obs = np.load(file_path / f"prev_object_pcd.npy").astype(np.float32)
+        pc_obs = pc_obs[:, [0,2,1]]
+        pc_nobs = data[:, [0,2,1]] 
+        pc_nobs, centroid, _ = Dynamics.pc_norm(pc_nobs)
+        pc_obs = pc_obs - centroid
+        pc_obs[:,-1] = pc_obs[:,-1] * 1.0
+        act_loc = np.load(file_path / 'action_location.npy')
+        action_flow = np.load(file_path / 'action_param.npy')
+        max_scale = [0.125, 0.125, 0.125]
+        action_scaled = action_flow.copy()
+        action_scaled[0] *= max_scale[0]
+        action_scaled[1] = ((action_scaled[1] + 1) / 2) * max_scale[1] # rescaled [-1, 1] to [0, max]
+        action_scaled[2] *= max_scale[2]
+        min_idx = ((act_loc - pc_obs)**2).sum(axis=1).argmin()
+        act_arr = np.ones(pc_obs.shape) * action_scaled
+        act_loc_arr = pc_obs - pc_obs[min_idx, :]
+        dyn_input = np.concatenate([pc_obs, act_loc_arr, act_arr], axis=-1)
+        dyn_output = pc_nobs - pc_obs
+        
         info = {
             "vis_mask": vis_mask,
+            "dyn_input": dyn_input,
+            "dyn_output": dyn_output,
         }
-
-        return sample["taxonomy_id"], sample["model_id"], data, info
+        return sample["taxonomy_id"], sample["model_id"], data_norm, info
 
     def __len__(self):
         return len(self.file_list)

@@ -69,7 +69,6 @@ class PoinTr_dynamics(nn.Module):
 
         self.fold_step = int(pow(self.num_pred//self.num_query, 0.5) + 0.5)
         self.pointnet = torch.load(config.pointnet_path)
-        breakpoint()
         self.base_model = PCTransformer_dynamics(in_chans = 3, embed_dim = self.trans_dim, depth = [6, 8], drop_rate = 0., num_query = self.num_query, knn_layer = self.knn_layer)
         
         self.foldingnet = Fold(self.trans_dim, step = self.fold_step, hidden_dim = 256)  # rebuild a cluster point
