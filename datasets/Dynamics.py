@@ -36,11 +36,11 @@ class Dynamics(data.Dataset):
     def pc_norm(pc):
         """pc: NxC, return NxC"""
         centroid = np.mean(pc, axis=0)
-        pc = pc - centroid
-        m = np.max(np.sqrt(np.sum(pc**2, axis=1)))
+        pc_norm = pc - centroid
+        # m = np.max(np.sqrt(np.sum(pc**2, axis=1)))
         # pc = pc / m
-        pc[:,-1] = pc[:,-1] * 1.0
-        return pc, centroid, 1
+        pc_norm[:,-1] = pc_norm[:,-1] * 1.0
+        return pc_norm, centroid, 1
 
     def __getitem__(self, idx):
         sample = self.file_list[idx]
@@ -54,8 +54,9 @@ class Dynamics(data.Dataset):
         pc_obs = pc_obs[:, [0,2,1]]
         pc_nobs = data[:, [0,2,1]] 
         pc_nobs, centroid, _ = Dynamics.pc_norm(pc_nobs)
+        pc_nobs[:, -1] = pc_nobs[:, -1] * 10.0
         pc_obs = pc_obs - centroid
-        pc_obs[:,-1] = pc_obs[:,-1] * 1.0
+        pc_obs[:,-1] = pc_obs[:,-1] * 10.0
         act_loc = np.load(file_path / 'action_location.npy')
         action_flow = np.load(file_path / 'action_param.npy')
         max_scale = [0.125, 0.125, 0.125]

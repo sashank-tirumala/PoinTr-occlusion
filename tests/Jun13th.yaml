@@ -1,0 +1,34 @@
+model:
+  in_channels: 9
+  out_channels: 3
+
+train_dataset:
+  NAME: Dynamics_Large_VCD_like
+  DATA_PATH: /data/sashank/datasets/2023-05-06_05-15-54/data
+  N_POINTS: 8192
+  PC_PATH: /data/sashank/datasets/2023-05-06_05-15-54
+  subset: train
+  normalization_type: pcs
+  ver: 9D 
+
+val_dataset:
+  NAME: Dynamics_Large
+  DATA_PATH: /data/sashank/datasets/2023-05-06_05-15-54/data   
+  N_POINTS: 8192
+  PC_PATH: /data/sashank/datasets/2023-05-06_05-15-54
+  subset: val 
+  normalization_type: pcs
+  ver: 9D 
+
+lr: 1e-4
+bs: 64 
+num_epochs: 2000
+device: 'cuda'
+ckpt_save_dir: /data/stirumal/experiments/
+run_name: none
+epoch_name: none 
+model_type: none
+viz_data_type: 'train'
+overfit: 0
+disable_batchnorm: 0
+
