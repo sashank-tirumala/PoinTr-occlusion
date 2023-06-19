@@ -13,6 +13,49 @@ def fps(pc, num):
     sub_pc = pointnet2_utils.gather_operation(pc.transpose(1, 2).contiguous(), fps_idx).transpose(1,2).contiguous()
     return sub_pc
 
+class Identity(nn.Module):
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, x):
+        return x
+
+def disable_batch_and_group_norm(module):
+    if (
+        isinstance(module, nn.BatchNorm1d)
+        or isinstance(module, nn.BatchNorm2d)
+        or isinstance(module, nn.BatchNorm3d)
+        or isinstance(module, nn.GroupNorm)
+        ):
+        return Identity()
+    for name, child_module in module.named_children():
+        module.add_module(name, disable_batch_and_group_norm(child_module))
+    return module
+
+def disable_dropout(module):
+    if (
+        isinstance(module, nn.Dropout) 
+        or isinstance(module, nn.Dropout2d) 
+        or isinstance(module, nn.Dropout3d)
+        ):
+        return Identity()
+    for name, child_module in module.named_children():
+        module.add_module(name, disable_dropout(child_module))
+    return module
+
+def is_batchnorm_disabled(model):
+        for module in model.modules():
+            if isinstance(module, (nn.BatchNorm2d, nn.BatchNorm1d, nn.GroupNorm)):
+                return False
+        return True
+    
+def is_dropout_disabled(model):
+    for module in model.modules():
+        if isinstance(module, (nn.Dropout, nn.Dropout2d, nn.Dropout3d)):
+            return False
+    return True
+
+
 
 class Fold(nn.Module):
     def __init__(self, in_channel , step , hidden_dim = 512):
@@ -81,6 +124,18 @@ class PoinTr_dynamics(nn.Module):
         )
         self.reduce_map = nn.Linear(self.trans_dim + 1027, self.trans_dim)
         self.build_loss_func()
+        if config.disable_batch_and_group_norm:
+            self.pointnet = disable_batch_and_group_norm(self.pointnet)
+            self.base_model = disable_batch_and_group_norm(self.base_model)
+            self.foldingnet = disable_batch_and_group_norm(self.foldingnet)
+        if config.disable_dropout_pointnet:
+            self.pointnet = disable_dropout(self.pointnet)
+        print("Batchnorm in pointnet is disabled: ", is_batchnorm_disabled(self.pointnet))
+        print("Dropout in pointnet is disabled: ", is_dropout_disabled(self.pointnet))  
+        print("Batchnorm in base_model is disabled: ", is_batchnorm_disabled(self.base_model))
+        print("Dropout in base_model is disabled: ", is_dropout_disabled(self.base_model))  
+        print("Batchnorm in folding net is disabled: ", is_batchnorm_disabled(self.foldingnet))
+        print("Dropout in folding net is disabled: ", is_dropout_disabled(self.foldingnet)) 
 
     def build_loss_func(self):
         self.loss_func = ChamferDistanceL1()
@@ -122,4 +177,4 @@ class PoinTr_dynamics(nn.Module):
 
         ret = (coarse_point_cloud, rebuild_points)
         return ret
-
+    
