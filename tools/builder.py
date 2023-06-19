@@ -25,10 +25,10 @@ def dataset_builder(args, config):
         sampler = None
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=config.others.bs if shuffle else 1,
                                                 shuffle = shuffle, 
-                                                drop_last = config.others.subset == 'train',
+                                                # drop_last = config.others.subset == 'train',
                                                 num_workers = int(args.num_workers),
                                                 worker_init_fn=worker_init_fn)
-    return sampler, dataloader
+    return sampler, dataloader, dataset
 
 def model_builder(config):
     model = build_model_from_cfg(config)

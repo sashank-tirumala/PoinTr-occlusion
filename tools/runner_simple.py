@@ -11,7 +11,6 @@ from utils.metrics import Metrics
 from extensions.chamfer_dist import ChamferDistanceL1, ChamferDistanceL2
 
 def run_net(args, config, train_writer=None, val_writer=None):
-    logger = get_logger(args.log_name)
     # build dataset
     (train_sampler, train_dataloader, train_dataset), (_, test_dataloader, test_dataset) = builder.dataset_builder(args, config.dataset.train), \
                                                             builder.dataset_builder(args, config.dataset.val)
@@ -21,46 +20,15 @@ def run_net(args, config, train_writer=None, val_writer=None):
     if args.use_gpu:
         base_model.to(args.local_rank)
 
-    # from IPython import embed; embed()
     
     # parameter setting
     start_epoch = 0
     best_metrics = None
     metrics = None
 
-    # resume ckpts
-    if args.resume:
-        start_epoch, best_metrics = builder.resume_model(base_model, args, logger = logger)
-        best_metrics = Metrics(config.consider_metric, best_metrics)
-    elif args.start_ckpts is not None:
-        builder.load_model(base_model, args.start_ckpts, logger = logger)
-
-    # print model info
-    print_log('Trainable_parameters:', logger = logger)
-    print_log('=' * 25, logger = logger)
-    for name, param in base_model.named_parameters():
-        if param.requires_grad:
-            print_log(name, logger=logger)
-    print_log('=' * 25, logger = logger)
-    
-    print_log('Untrainable_parameters:', logger = logger)
-    print_log('=' * 25, logger = logger)
-    for name, param in base_model.named_parameters():
-        if not param.requires_grad:
-            print_log(name, logger=logger)
-    print_log('=' * 25, logger = logger)
-
-    # DDP
-    if args.distributed:
-        # Sync BN
-        if args.sync_bn:
-            base_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(base_model)
-            print_log('Using Synchronized BatchNorm ...', logger = logger)
-        base_model = nn.parallel.DistributedDataParallel(base_model, device_ids=[args.local_rank % torch.cuda.device_count()], find_unused_parameters=True)
-        print_log('Using Distributed Data parallel ...' , logger = logger)
-    else:
-        print_log('Using Data parallel ...' , logger = logger)
-        base_model = nn.DataParallel(base_model).cuda()
+    # print model info (deleted)
+    print_log('Using Data parallel ...') 
+    base_model = nn.DataParallel(base_model).cuda()
     # optimizer & scheduler
     optimizer = builder.build_optimizer(base_model, config)
     
@@ -69,47 +37,24 @@ def run_net(args, config, train_writer=None, val_writer=None):
     ChamferDisL2 = ChamferDistanceL2()
 
 
-    if args.resume:
-        builder.resume_optimizer(optimizer, args, logger = logger)
     scheduler = builder.build_scheduler(base_model, optimizer, config, last_epoch=start_epoch-1)
 
-    # trainval
-    # training
     base_model.zero_grad()
+
     for epoch in range(start_epoch, config.max_epoch + 1):
-        if args.distributed:
-            train_sampler.set_epoch(epoch)
         base_model.train()
 
         epoch_start_time = time.time()
-        batch_start_time = time.time()
-        batch_time = AverageMeter()
-        data_time = AverageMeter()
-        losses = AverageMeter(['SparseLoss', 'DenseLoss'])
-
         num_iter = 0
 
         base_model.train()  # set model to training mode
         n_batches = len(train_dataloader)
+        breakpoint()
         for idx, (taxonomy_ids, model_ids, data, info) in enumerate(train_dataloader):
-            data_time.update(time.time() - batch_start_time)
+            breakpoint()
             npoints = config.dataset.train._base_.N_POINTS
             dataset_name = config.dataset.train._base_.NAME
-            if  'PCN' in dataset_name or dataset_name == 'Completion3D' or 'ProjectShapeNet' in dataset_name:
-                partial = data[0].cuda()
-                gt = data[1].cuda()
-                if config.dataset.train._base_.CARS:
-                    if idx == 0:
-                        print_log('padding while KITTI training', logger=logger)
-                    # partial, gt = misc.random_scale(partial, gt) # specially for KITTI finetune
-                    partial = misc.random_dropping(partial, epoch) # specially for KITTI finetune
-
-            elif 'ShapeNet' in dataset_name:
-                gt = data.cuda()
-                partial, _ = misc.seprate_point_cloud(gt, npoints, [int(npoints * 1/4) , int(npoints * 3/4)], fixed_points = None)
-                partial = partial.cuda()
-            
-            elif 'Dynamics' in dataset_name:
+            if 'Dynamics' in dataset_name:
                 gt = data.cuda()  # B x N (2209) x 3
                 partial = misc.separate_point_cloud_knownpartial(
                         gt, info["vis_mask"]
@@ -134,29 +79,10 @@ def run_net(args, config, train_writer=None, val_writer=None):
                 optimizer.step()
                 base_model.zero_grad()
 
-            if args.distributed:
-                sparse_loss = dist_utils.reduce_tensor(sparse_loss, args)
-                dense_loss = dist_utils.reduce_tensor(dense_loss, args)
-                losses.update([sparse_loss.item() * 1000, dense_loss.item() * 1000])
-            else:
-                losses.update([sparse_loss.item() * 1000, dense_loss.item() * 1000])
 
 
-            if args.distributed:
-                torch.cuda.synchronize()
 
             n_itr = epoch * n_batches + idx
-            if train_writer is not None:
-                train_writer.add_scalar('Loss/Batch/Sparse', sparse_loss.item() * 1000, n_itr)
-                train_writer.add_scalar('Loss/Batch/Dense', dense_loss.item() * 1000, n_itr)
-
-            batch_time.update(time.time() - batch_start_time)
-            batch_start_time = time.time()
-
-            if idx % 100 == 0:
-                print_log('[Epoch %d/%d][Batch %d/%d] BatchTime = %.3f (s) DataTime = %.3f (s) Losses = %s lr = %.6f' %
-                            (epoch, config.max_epoch, idx + 1, n_batches, batch_time.val(), data_time.val(),
-                            ['%.4f' % l for l in losses.val()], optimizer.param_groups[0]['lr']), logger = logger)
 
             if config.scheduler.type == 'GradualWarmup':
                 if n_itr < config.scheduler.kwargs_2.total_epoch:
@@ -169,26 +95,13 @@ def run_net(args, config, train_writer=None, val_writer=None):
             scheduler.step()
         epoch_end_time = time.time()
 
-        if train_writer is not None:
-            train_writer.add_scalar('Loss/Epoch/Sparse', losses.avg(0), epoch)
-            train_writer.add_scalar('Loss/Epoch/Dense', losses.avg(1), epoch)
-        print_log('[Training] EPOCH: %d EpochTime = %.3f (s) Losses = %s' %
-            (epoch,  epoch_end_time - epoch_start_time, ['%.4f' % l for l in losses.avg()]), logger = logger)
 
         if epoch % args.val_freq == 0:
-            # Validate the current model
-            metrics = validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val_writer, args, config, logger=logger)
+            # Validate the current model and save model if good validation metrics
+            # metrics = validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val_writer, args, config, logger=logger)
 
             # Save ckeckpoints
-            if  metrics.better_than(best_metrics):
-                best_metrics = metrics
-                builder.save_checkpoint(base_model, optimizer, epoch, metrics, best_metrics, 'ckpt-best', args, logger = logger)
-        builder.save_checkpoint(base_model, optimizer, epoch, metrics, best_metrics, 'ckpt-last', args, logger = logger)      
-        if (config.max_epoch - epoch) < 2:
-            builder.save_checkpoint(base_model, optimizer, epoch, metrics, best_metrics, f'ckpt-epoch-{epoch:03d}', args, logger = logger)     
-    if train_writer is not None and val_writer is not None:
-        train_writer.close()
-        val_writer.close()
+            pass
 
 def validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val_writer, args, config, logger = None):
     print_log(f"[VALIDATION] Start validating epoch {epoch}", logger = logger)
