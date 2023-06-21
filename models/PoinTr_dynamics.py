@@ -145,8 +145,12 @@ class PoinTr_dynamics(nn.Module):
         loss_fine = self.loss_func(ret[1], gt)
         return loss_coarse, loss_fine
 
-    def forward(self, xyz):
-        q, coarse_point_cloud = self.base_model(xyz) # B M C and B M 3
+    def forward(self, xyz, pointnet_inp):
+        pointnet_outp = self.pointnet(pointnet_inp.permute(0,2,1))[0]
+        pointnet_outp = pointnet_inp[:, :, :3] + pointnet_outp
+        del pointnet_inp
+
+        q, coarse_point_cloud = self.base_model(xyz, pointnet_outp) # B M C and B M 3
     
         B, M ,C = q.shape
 

@@ -464,6 +464,13 @@ class PCTransformer_dynamics(nn.Module):
             nn.LeakyReLU(negative_slope=0.2),
             nn.Conv1d(embed_dim, embed_dim, 1)
         )
+        
+        self.type_embed = nn.Sequential(
+            nn.Conv1d(1, 128, 1),
+            nn.BatchNorm1d(128),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Conv1d(128, embed_dim, 1)
+        )
 
         self.encoder = nn.ModuleList([
             Block(
@@ -546,29 +553,38 @@ class PCTransformer_dynamics(nn.Module):
         # pos = self.pos_embed_wave(x)
         return pos
 
-    def forward(self, inpc):
+    def forward(self, inpc, pointnet_outp):
         '''
             inpc : input incomplete point cloud with shape B N(2048) C(3)
         '''
         # build point proxy
-        breakpoint()
         bs = inpc.size(0)
         coor, f = self.grouper(inpc.transpose(1,2).contiguous()) 
-        knn_index = get_knn_index(coor)
+        # knn_index = get_knn_index(coor)
         # NOTE: try to use a sin wave  coor B 3 N, change the pos_embed input dim
         # pos = self.pos_encoding_sin_wave(coor).transpose(1,2)
         pos =  self.pos_embed(coor).transpose(1,2)
         x = self.input_proj(f).transpose(1,2)
+        typ = torch.zeros(bs, x.shape[1], 1).to(x.dtype).to(x.device)
+
+        coor2, f2 = self.grouper(pointnet_outp.transpose(1,2).contiguous())
+        pos2 = self.pos_embed(coor2).transpose(1,2)
+        x2 = self.input_proj(f2).transpose(1,2)
+        typ2 = torch.ones(bs, x2.shape[1], 1).to(x2.dtype).to(x2.device)
+        
+        x = torch.cat([x, x2], dim=1)
+        pos = torch.cat([pos, pos2], dim=1)
+        typ = torch.cat([typ, typ2], dim=1).transpose(1,2)
+        typ = self.type_embed(typ).transpose(1,2)
+        
+
         # cls_pos = self.cls_pos.expand(bs, -1, -1)
         # cls_token = self.cls_pos.expand(bs, -1, -1)
         # x = torch.cat([cls_token, x], dim=1)
         # pos = torch.cat([cls_pos, pos], dim=1)
         # encoder
         for i, blk in enumerate(self.encoder):
-            if i < self.knn_layer:
-                x = blk(x + pos, knn_index)   # B N C
-            else:
-                x = blk(x + pos)
+            x = blk(x + pos + typ)
         # build the query feature for decoder
         # global_feature  = x[:, 0] # B C
 

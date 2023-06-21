@@ -49,9 +49,7 @@ def run_net(args, config, train_writer=None, val_writer=None):
 
         base_model.train()  # set model to training mode
         n_batches = len(train_dataloader)
-        breakpoint()
         for idx, (taxonomy_ids, model_ids, data, info) in enumerate(train_dataloader):
-            breakpoint()
             npoints = config.dataset.train._base_.N_POINTS
             dataset_name = config.dataset.train._base_.NAME
             if 'Dynamics' in dataset_name:

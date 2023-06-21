@@ -35,6 +35,7 @@ model : {
   trans_dim: 384, 
   predict_full_cloud: False, 
   pointnet_path: /data/sashank/experiments/pointnet-dynamics/flowing-wood-88/best_val.pth,
+  disable_dropout_pointnet: True,
   # use_action: False,
   # use_hist: False
 }
