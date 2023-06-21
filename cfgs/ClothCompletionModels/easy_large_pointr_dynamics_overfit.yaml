@@ -34,7 +34,7 @@ model : {
   knn_layer: 0, 
   trans_dim: 384, 
   predict_full_cloud: False, 
-  pointnet_path: /data/sashank/experiments/pointnet-dynamics/flowing-wood-88/best_val.pth,
+  pointnet_path: /data/sashank/experiments/pointnet-dynamics/fluent-valley-107/latest_epoch.pth,
   disable_dropout_pointnet: True,
   # use_action: False,
   # use_hist: False

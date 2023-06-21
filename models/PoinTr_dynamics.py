@@ -6,6 +6,7 @@ from pointnet2_sem_seg import get_model
 from extensions.chamfer_dist import ChamferDistanceL1
 from .Transformer import PCTransformer_dynamics
 from .build import MODELS
+import plotly.graph_objects as go
 
 
 def fps(pc, num):
@@ -55,7 +56,51 @@ def is_dropout_disabled(model):
             return False
     return True
 
+def make_3d_plot(inp, pred, num=0):
+    pc1 = inp[num, :, :].detach().cpu().numpy()
+    pred_np = pred[num, :, :].detach().cpu().numpy()
+    pc_pred = pc1[:, :3] + pred_np
+    trace_obs = go.Scatter3d(
+        x=pc1[:, 0],
+        y=pc1[:, 1],
+        z=pc1[:, 2],
+        mode="markers",
+        marker=dict(size=5, color="yellow", opacity=1.0),
+        name="prev points gt",
+        visible = True
+    )
+    trace_nobs_pred = go.Scatter3d(
+        x=pc_pred[:, 0],
+        y=pc_pred[:, 1],
+        z=pc_pred[:, 2],
+        mode="markers",
+        marker=dict(size=5, color="red", opacity=1.0),
+        name="curr points pred",
+        visible = 'legendonly'
+    )
+    fig = go.Figure(data=[trace_obs, trace_nobs_pred])
+    buttons = [
+        dict(label="Show Obs Points",
+             method="update",
+             args=[{"visible": [True, 'legendonly', 'legendonly']}]),
+        dict(label="Show Nobs Points",
+             method="update",
+             args=[{"visible": ['legendonly', True, 'legendonly']}]),
+        dict(label="Show Nobs Pred Points",
+             method="update",
+             args=[{"visible": ['legendonly', 'legendonly', True]}])
+    ] 
 
+    fig.update_layout(
+        updatemenus=[
+            dict(
+                type="buttons",
+                showactive=True,
+                buttons=buttons,
+            )
+        ]
+    )
+    return fig
 
 class Fold(nn.Module):
     def __init__(self, in_channel , step , hidden_dim = 512):
@@ -125,11 +170,12 @@ class PoinTr_dynamics(nn.Module):
         self.reduce_map = nn.Linear(self.trans_dim + 1027, self.trans_dim)
         self.build_loss_func()
         if config.disable_batch_and_group_norm:
-            self.pointnet = disable_batch_and_group_norm(self.pointnet)
+            # self.pointnet = disable_batch_and_group_norm(self.pointnet)
             self.base_model = disable_batch_and_group_norm(self.base_model)
             self.foldingnet = disable_batch_and_group_norm(self.foldingnet)
         if config.disable_dropout_pointnet:
-            self.pointnet = disable_dropout(self.pointnet)
+            # self.pointnet = disable_dropout(self.pointnet)
+            pass
         print("Batchnorm in pointnet is disabled: ", is_batchnorm_disabled(self.pointnet))
         print("Dropout in pointnet is disabled: ", is_dropout_disabled(self.pointnet))  
         print("Batchnorm in base_model is disabled: ", is_batchnorm_disabled(self.base_model))
@@ -146,7 +192,11 @@ class PoinTr_dynamics(nn.Module):
         return loss_coarse, loss_fine
 
     def forward(self, xyz, pointnet_inp):
+        self.pointnet.eval()
         pointnet_outp = self.pointnet(pointnet_inp.permute(0,2,1))[0]
+        # FOR DEBUG PURPOSES ONLY
+        # fig = make_3d_plot(pointnet_inp, pointnet_outp)
+        # fig.show()
         pointnet_outp = pointnet_inp[:, :, :3] + pointnet_outp
         del pointnet_inp
 
