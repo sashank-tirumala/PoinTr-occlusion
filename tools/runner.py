@@ -9,6 +9,41 @@ from utils.logger import *
 from utils.AverageMeter import AverageMeter
 from utils.metrics import Metrics
 from extensions.chamfer_dist import ChamferDistanceL1, ChamferDistanceL2
+import wandb
+import plotly.graph_objects as go
+
+def make_3d_plot(vis, pred, num=0):
+    pc2 = vis[num, :, :].detach().cpu().numpy()
+    pc_pred = pred[num, :, :].detach().cpu().numpy()
+    # pc_pred = pc1[:, :3] + pred_np
+    trace_nobs_pred = go.Scatter3d(
+        x=pc_pred[:, 0],
+        y=pc_pred[:, 1],
+        z=pc_pred[:, 2],
+        mode="markers",
+        marker=dict(size=5, color="red", opacity=0.6),
+        name="curr points pred",
+        visible = 'legendonly'
+    )
+    trace_vis = go.Scatter3d(
+        x=pc2[:, 0],
+        y=pc2[:, 1],
+        z=pc2[:, 2],
+        mode="markers",
+        marker=dict(size=5, color="green", opacity=0.6),
+        name="vis points",
+        visible = 'legendonly'
+    )
+    fig = go.Figure(data=[trace_vis, trace_nobs_pred])
+    fig.update_layout(
+        updatemenus=[
+            dict(
+                type="buttons",
+                showactive=True,
+            )
+        ]
+    )
+    return fig
 
 def run_net(args, config, train_writer=None, val_writer=None):
     logger = get_logger(args.log_name)
@@ -18,6 +53,7 @@ def run_net(args, config, train_writer=None, val_writer=None):
     # build model
     config.model.disable_batch_and_group_norm = config.total_bs < 32
     base_model = builder.model_builder(config.model)
+    model_name = config.model.NAME
     if args.use_gpu:
         base_model.to(args.local_rank)
 
@@ -76,6 +112,14 @@ def run_net(args, config, train_writer=None, val_writer=None):
     # trainval
     # training
     base_model.zero_grad()
+    if args.use_wandb:
+        wandb.init(project="PoinTr-Dynamics_1", save_code=True, name=args.exp_name)
+        wandb.watch(base_model)
+        wandb.config.update(args)
+        wandb.config.update(config)
+        wandb.config.update({"model_name": model_name})
+        train_writer = None
+        val_writer = None
     for epoch in range(start_epoch, config.max_epoch + 1):
         if args.distributed:
             train_sampler.set_epoch(epoch)
@@ -126,8 +170,11 @@ def run_net(args, config, train_writer=None, val_writer=None):
                 raise NotImplementedError(f'Train phase do not support {dataset_name}')
 
             num_iter += 1
-           
-            ret = base_model(partial, pointnet_inp)
+            print(f"MODEL: {model_name}")
+            if model_name == 'PoinTr_dynamics':
+                ret = base_model(partial, pointnet_inp)
+            else:
+                ret = base_model(partial)
             
             sparse_loss, dense_loss = base_model.module.get_loss(ret, gt, epoch)
          
@@ -179,12 +226,20 @@ def run_net(args, config, train_writer=None, val_writer=None):
         if train_writer is not None:
             train_writer.add_scalar('Loss/Epoch/Sparse', losses.avg(0), epoch)
             train_writer.add_scalar('Loss/Epoch/Dense', losses.avg(1), epoch)
+        
+        if wandb is not None:
+            wandb.log({"Train/Loss/Batch/Sparse": sparse_loss.item() * 1000, 
+                       "Train/Loss/Batch/Dense": dense_loss.item() * 1000, 
+                       "epoch": epoch,
+                       "Train/Loss/Epoch/Sparse": losses.avg(0),
+                       "Train/Loss/Epoch/Dense": losses.avg(1)})
+        
         print_log('[Training] EPOCH: %d EpochTime = %.3f (s) Losses = %s' %
             (epoch,  epoch_end_time - epoch_start_time, ['%.4f' % l for l in losses.avg()]), logger = logger)
 
         if epoch % args.val_freq == 0:
             # Validate the current model
-            metrics = validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val_writer, args, config, logger=logger)
+            metrics = validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val_writer, args, config, model_name, wandb, logger=logger)
 
             # Save ckeckpoints
             if  metrics.better_than(best_metrics):
@@ -197,7 +252,7 @@ def run_net(args, config, train_writer=None, val_writer=None):
         train_writer.close()
         val_writer.close()
 
-def validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val_writer, args, config, logger = None):
+def validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val_writer, args, config, model_name, wandb, logger = None):
     print_log(f"[VALIDATION] Start validating epoch {epoch}", logger = logger)
     base_model.eval()  # set model to eval mode
 
@@ -240,7 +295,11 @@ def validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val
             else:
                 raise NotImplementedError(f'Train phase do not support {dataset_name}')
 
-            ret = base_model(partial, pointnet_inp)
+            if model_name == 'PoinTr_dynamics':
+                ret = base_model(partial, pointnet_inp)
+            else:
+                ret = base_model(partial)
+            
             coarse_points = ret[0]
             dense_points = ret[-1]
 
@@ -289,6 +348,10 @@ def validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val
                 gt_ptcloud = gt.squeeze().cpu().numpy()
                 gt_ptcloud_img = misc.get_ptcloud_img(gt_ptcloud)
                 val_writer.add_image('Model%02d/DenseGT' % idx, gt_ptcloud_img, epoch, dataformats='HWC')
+            
+            if wandb is not None and idx % 5000 == 0 and epoch % 1 == 0:
+                fig = make_3d_plot(gt, dense_points, 0)
+                wandb.log({f"3D Val Plot, {idx}": fig})
         
             if (idx+1) % interval == 0:
                 print_log('Test[%d/%d] Taxonomy = %s Sample = %s Losses = %s Metrics = %s' %
@@ -333,6 +396,11 @@ def validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val
         val_writer.add_scalar('Loss/Epoch/Dense', test_losses.avg(2), epoch)
         for i, metric in enumerate(test_metrics.items):
             val_writer.add_scalar('Metric/%s' % metric, test_metrics.avg(i), epoch)
+    
+    if wandb is not None:
+        wandb.log({'Val/Loss/Epoch/Sparse': test_losses.avg(0), 'Val/Loss/Epoch/Dense': test_losses.avg(2)}, step = epoch)
+        for i, metric in enumerate(test_metrics.items):
+            wandb.log({'Val/Metric/%s' % metric: test_metrics.avg(i)}, step = epoch)
 
     return Metrics(config.consider_metric, test_metrics.avg())
 

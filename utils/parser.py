@@ -47,6 +47,12 @@ def get_args():
         choices=['easy', 'median', 'hard', None],
         default=None,
         help = 'difficulty mode for shapenet')        
+    parser.add_argument(
+        "--use_wandb",
+        action="store_true",
+        default=False,
+        help="whether to use wandb",
+    )
     args = parser.parse_args()
 
     if args.test and args.resume:
