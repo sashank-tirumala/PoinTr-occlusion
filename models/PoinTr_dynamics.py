@@ -56,10 +56,11 @@ def is_dropout_disabled(model):
             return False
     return True
 
-def make_3d_plot(inp, pred, num=0):
+def make_3d_plot(inp, pred, vis, num=0):
     pc1 = inp[num, :, :].detach().cpu().numpy()
-    pred_np = pred[num, :, :].detach().cpu().numpy()
-    pc_pred = pc1[:, :3] + pred_np
+    pc2 = vis[num, :, :].detach().cpu().numpy()
+    pc_pred = pred[num, :, :].detach().cpu().numpy()
+    # pc_pred = pc1[:, :3] + pred_np
     trace_obs = go.Scatter3d(
         x=pc1[:, 0],
         y=pc1[:, 1],
@@ -78,12 +79,21 @@ def make_3d_plot(inp, pred, num=0):
         name="curr points pred",
         visible = 'legendonly'
     )
-    fig = go.Figure(data=[trace_obs, trace_nobs_pred])
+    trace_vis = go.Scatter3d(
+        x=pc2[:, 0],
+        y=pc2[:, 1],
+        z=pc2[:, 2],
+        mode="markers",
+        marker=dict(size=5, color="green", opacity=1.0),
+        name="vis points",
+        visible = 'legendonly'
+    )
+    fig = go.Figure(data=[trace_obs, trace_vis, trace_nobs_pred])
     buttons = [
         dict(label="Show Obs Points",
              method="update",
              args=[{"visible": [True, 'legendonly', 'legendonly']}]),
-        dict(label="Show Nobs Points",
+        dict(label="Show Vis Points nobs",
              method="update",
              args=[{"visible": ['legendonly', True, 'legendonly']}]),
         dict(label="Show Nobs Pred Points",
@@ -173,6 +183,7 @@ class PoinTr_dynamics(nn.Module):
             # self.pointnet = disable_batch_and_group_norm(self.pointnet)
             self.base_model = disable_batch_and_group_norm(self.base_model)
             self.foldingnet = disable_batch_and_group_norm(self.foldingnet)
+            self.increase_dim = disable_batch_and_group_norm(self.increase_dim)
         if config.disable_dropout_pointnet:
             # self.pointnet = disable_dropout(self.pointnet)
             pass
@@ -195,9 +206,13 @@ class PoinTr_dynamics(nn.Module):
         self.pointnet.eval()
         pointnet_outp = self.pointnet(pointnet_inp.permute(0,2,1))[0]
         # FOR DEBUG PURPOSES ONLY
-        # fig = make_3d_plot(pointnet_inp, pointnet_outp)
-        # fig.show()
         pointnet_outp = pointnet_inp[:, :, :3] + pointnet_outp
+        pointnet_outp[:, :, -1] = pointnet_outp[:, :, -1]/10
+        pointnet_outp = pointnet_outp[:, :, [0,2,1]]
+        # fig = make_3d_plot(pointnet_inp, pointnet_outp, xyz)
+        # fig.show()
+        # breakpoint()
+        # pointnet_outp = pointnet_inp[:, :, :3] + pointnet_outp
         del pointnet_inp
 
         q, coarse_point_cloud = self.base_model(xyz, pointnet_outp) # B M C and B M 3

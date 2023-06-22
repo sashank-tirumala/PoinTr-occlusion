@@ -43,8 +43,8 @@ def is_dropout_disabled(model):
         if isinstance(module, (nn.Dropout, nn.Dropout2d, nn.Dropout3d)):
             return False
     return True
-# print("Batchnorm in pointnet is disabled: ", is_batchnorm_disabled(pointr_model.pointnet))
-# print("Dropout in pointnet is disabled: ", is_dropout_disabled(pointr_model.pointnet))
+print("Batchnorm in pointnet is disabled: ", is_batchnorm_disabled(pointr_model.pointnet))
+print("Dropout in pointnet is disabled: ", is_dropout_disabled(pointr_model.pointnet))
 for batch_idx, data in enumerate(train_dataloader):
     inp = data[3]['dyn_input'].to(torch.float32).to(config.device)
     inp = inp.permute(0,2,1)

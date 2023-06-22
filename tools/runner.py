@@ -110,17 +110,24 @@ def run_net(args, config, train_writer=None, val_writer=None):
                 partial = partial.cuda()
             
             elif 'Dynamics' in dataset_name:
-                gt = data.cuda()  # B x N (2209) x 3
+                pointnet_inp = info['dyn_input'].to(torch.float32).to(config.device)
+                pointr_inp = data.to(torch.float32).to(config.device)
+                vis_mask = info['vis_mask'].to(torch.float32).to(config.device)
+                gt = pointr_inp.cuda()  # B x N (2209) x 3
                 partial = misc.separate_point_cloud_knownpartial(
-                        gt, info["vis_mask"]
-                    )
-                partial = partial.cuda()
+                            gt, vis_mask
+                        ).to(torch.float32).to(config.device)
+                # gt = data.cuda()  # B x N (2209) x 3
+                # partial = misc.separate_point_cloud_knownpartial(
+                        # gt, info["vis_mask"]
+                    # )
+                # partial = partial.cuda()
             else:
                 raise NotImplementedError(f'Train phase do not support {dataset_name}')
 
             num_iter += 1
            
-            ret = base_model(partial)
+            ret = base_model(partial, pointnet_inp)
             
             sparse_loss, dense_loss = base_model.module.get_loss(ret, gt, epoch)
          
@@ -218,16 +225,22 @@ def validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val
                 partial = partial.cuda()
             
             elif 'Dynamics' in dataset_name:
-                gt = data.cuda()  # B x N (2209) x 3
+                pointnet_inp = info['dyn_input'].to(torch.float32).to(config.device)
+                pointr_inp = data.to(torch.float32).to(config.device)
+                vis_mask = info['vis_mask'].to(torch.float32).to(config.device)
+                gt = pointr_inp.cuda()  # B x N (2209) x 3
                 partial = misc.separate_point_cloud_knownpartial(
-                        gt, info["vis_mask"]
-                    )
-                partial = partial.cuda()
-            
+                            gt, vis_mask
+                        ).to(torch.float32).to(config.device)
+                # gt = data.cuda()  # B x N (2209) x 3
+                # partial = misc.separate_point_cloud_knownpartial(
+                        # gt, info["vis_mask"]
+                    # )
+                # partial = partial.cuda()
             else:
                 raise NotImplementedError(f'Train phase do not support {dataset_name}')
 
-            ret = base_model(partial)
+            ret = base_model(partial, pointnet_inp)
             coarse_points = ret[0]
             dense_points = ret[-1]
 
@@ -299,14 +312,14 @@ def validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val
     msg += '#ModelName\t'
     print_log(msg, logger=logger)
 
-    for taxonomy_id in category_metrics:
-        msg = ''
-        msg += (taxonomy_id + '\t')
-        msg += (str(category_metrics[taxonomy_id].count(0)) + '\t')
-        for value in category_metrics[taxonomy_id].avg():
-            msg += '%.3f \t' % value
-        # msg += shapenet_dict[taxonomy_id] + '\t'
-        print_log(msg, logger=logger)
+    # for taxonomy_id in category_metrics:
+    #     msg = ''
+    #     msg += (taxonomy_id + '\t')
+    #     msg += (str(category_metrics[taxonomy_id].count(0)) + '\t')
+    #     for value in category_metrics[taxonomy_id].avg():
+    #         msg += '%.3f \t' % value
+    #     # msg += shapenet_dict[taxonomy_id] + '\t'
+    #     print_log(msg, logger=logger)
 
     msg = ''
     msg += 'Overall\t\t'
