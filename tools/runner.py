@@ -9,7 +9,6 @@ from utils.logger import *
 from utils.AverageMeter import AverageMeter
 from utils.metrics import Metrics
 from extensions.chamfer_dist import ChamferDistanceL1, ChamferDistanceL2
-import wandb
 import plotly.graph_objects as go
 
 def make_3d_plot(vis, pred, num=0):
@@ -113,6 +112,7 @@ def run_net(args, config, train_writer=None, val_writer=None):
     # training
     base_model.zero_grad()
     if args.use_wandb:
+        import wandb
         wandb.init(project="PoinTr-Dynamics_1", save_code=True, name=args.exp_name)
         wandb.watch(base_model)
         wandb.config.update(args)
@@ -120,6 +120,8 @@ def run_net(args, config, train_writer=None, val_writer=None):
         wandb.config.update({"model_name": model_name})
         train_writer = None
         val_writer = None
+    else:
+        wandb = None
     for epoch in range(start_epoch, config.max_epoch + 1):
         if args.distributed:
             train_sampler.set_epoch(epoch)
@@ -170,7 +172,7 @@ def run_net(args, config, train_writer=None, val_writer=None):
                 raise NotImplementedError(f'Train phase do not support {dataset_name}')
 
             num_iter += 1
-            print(f"MODEL: {model_name}")
+            # print(f"MODEL: {model_name}")
             if model_name == 'PoinTr_dynamics':
                 ret = base_model(partial, pointnet_inp)
             else:
@@ -211,10 +213,17 @@ def run_net(args, config, train_writer=None, val_writer=None):
                 print_log('[Epoch %d/%d][Batch %d/%d] BatchTime = %.3f (s) DataTime = %.3f (s) Losses = %s lr = %.6f' %
                             (epoch, config.max_epoch, idx + 1, n_batches, batch_time.val(), data_time.val(),
                             ['%.4f' % l for l in losses.val()], optimizer.param_groups[0]['lr']), logger = logger)
+                if wandb is not None:
+                    wandb.log({
+                               "batch": epoch*n_batches+idx+1,
+                               "Train/Loss/Batch/Sparse": losses.val(0),
+                               "Train/Loss/Batch/Dense": losses.val(1),
+                               })
 
             if config.scheduler.type == 'GradualWarmup':
                 if n_itr < config.scheduler.kwargs_2.total_epoch:
                     scheduler.step()
+            break
 
         if isinstance(scheduler, list):
             for item in scheduler:
@@ -228,9 +237,7 @@ def run_net(args, config, train_writer=None, val_writer=None):
             train_writer.add_scalar('Loss/Epoch/Dense', losses.avg(1), epoch)
         
         if wandb is not None:
-            wandb.log({"Train/Loss/Batch/Sparse": sparse_loss.item() * 1000, 
-                       "Train/Loss/Batch/Dense": dense_loss.item() * 1000, 
-                       "epoch": epoch,
+            wandb.log({"epoch": epoch,
                        "Train/Loss/Epoch/Sparse": losses.avg(0),
                        "Train/Loss/Epoch/Dense": losses.avg(1)})
         
@@ -357,6 +364,14 @@ def validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val
                 print_log('Test[%d/%d] Taxonomy = %s Sample = %s Losses = %s Metrics = %s' %
                             (idx + 1, n_samples, taxonomy_id, model_id, ['%.4f' % l for l in test_losses.val()], 
                             ['%.4f' % m for m in _metrics]), logger=logger)
+            
+            if wandb is not None and idx%100 == 0:
+                wandb.log({
+                           "Val/Loss/Batch/Sparse": test_losses.val(0),
+                           "Val/Loss/Batch/Dense": test_losses.val(1),
+                           "batch": idx+epoch*n_samples
+                           })
+            break
         for _,v in category_metrics.items():
             test_metrics.update(v.avg())
         print_log('[Validation] EPOCH: %d  Metrics = %s' % (epoch, ['%.4f' % m for m in test_metrics.avg()]), logger=logger)
@@ -398,7 +413,7 @@ def validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val
             val_writer.add_scalar('Metric/%s' % metric, test_metrics.avg(i), epoch)
     
     if wandb is not None:
-        wandb.log({'Val/Loss/Epoch/Sparse': test_losses.avg(0), 'Val/Loss/Epoch/Dense': test_losses.avg(2)}, step = epoch)
+        wandb.log({'Val/Loss/Epoch/Sparse': test_losses.avg(0), 'Val/Loss/Epoch/Dense': test_losses.avg(2), 'epoch': epoch})
         for i, metric in enumerate(test_metrics.items):
             wandb.log({'Val/Metric/%s' % metric: test_metrics.avg(i)}, step = epoch)
 
