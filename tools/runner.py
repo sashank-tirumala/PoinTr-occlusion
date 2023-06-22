@@ -223,7 +223,6 @@ def run_net(args, config, train_writer=None, val_writer=None):
             if config.scheduler.type == 'GradualWarmup':
                 if n_itr < config.scheduler.kwargs_2.total_epoch:
                     scheduler.step()
-            break
 
         if isinstance(scheduler, list):
             for item in scheduler:
@@ -371,7 +370,6 @@ def validate(base_model, test_dataloader, epoch, ChamferDisL1, ChamferDisL2, val
                            "Val/Loss/Batch/Dense": test_losses.val(1),
                            "batch": idx+epoch*n_samples
                            })
-            break
         for _,v in category_metrics.items():
             test_metrics.update(v.avg())
         print_log('[Validation] EPOCH: %d  Metrics = %s' % (epoch, ['%.4f' % m for m in test_metrics.avg()]), logger=logger)
