@@ -113,7 +113,7 @@ def run_net(args, config, train_writer=None, val_writer=None):
     base_model.zero_grad()
     if args.use_wandb:
         import wandb
-        wandb.init(project="PoinTr-Dynamics_1", save_code=True, name=args.exp_name)
+        wandb.init(project="PoinTr-Dynamics_2", save_code=True, name=args.exp_name)
         wandb.watch(base_model)
         wandb.config.update(args)
         wandb.config.update(config)
