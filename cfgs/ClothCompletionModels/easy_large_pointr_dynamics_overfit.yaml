@@ -28,14 +28,14 @@ dataset : {
   test : { _base_: cfgs/dataset_configs/easy_large_overfit.yaml, 
             others: {subset: 'test'}}}
 model : {
-  NAME: PoinTr_dynamics, 
+  NAME: PoinTr, 
   num_pred: 6144, 
   num_query: 96, 
   knn_layer: 0, 
   trans_dim: 384, 
   predict_full_cloud: False, 
   pointnet_path: /data/sashank/experiments/pointnet-dynamics/fluent-valley-107/latest_epoch.pth,
-  disable_dropout_pointnet: True,
+  disable_dropout_pointnet: False,
   # use_action: False,
   # use_hist: False
 }
