@@ -6,7 +6,7 @@
 # @Email:  cshzxie@gmail.com
 
 import logging
-import open3d
+# import open3d
 import torch
 from extensions.chamfer_dist import ChamferDistanceL1, ChamferDistanceL2
 import os
@@ -77,6 +77,7 @@ class Metrics(object):
                 f_score_list.append(cls._get_f_score(pred[idx:idx+1], gt[idx:idx+1]))
             return sum(f_score_list)/len(f_score_list)
         else:
+            return torch.tensor(0).to(device)
             pred = cls._get_open3d_ptcloud(pred)
             gt = cls._get_open3d_ptcloud(gt)
 
@@ -92,6 +93,7 @@ class Metrics(object):
     @classmethod
     def _get_open3d_ptcloud(cls, tensor):
         """pred and gt bs is 1"""
+        return None
         tensor = tensor.squeeze().cpu().numpy()
         ptcloud = open3d.geometry.PointCloud()
         ptcloud.points = open3d.utility.Vector3dVector(tensor)
