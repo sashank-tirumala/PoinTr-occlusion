@@ -1,0 +1,7 @@
+NAME: Dynamics
+DATA_PATH: /data/sashank/datasets/2023-05-06_05-15-54/data
+# DATA_PATH: data/biman_FFN/FFN 
+N_POINTS: 8192
+PC_PATH: /data/sashank/datasets/2023-05-06_05-15-54
+# PC_PATH: data/biman_FFN/samples 
+

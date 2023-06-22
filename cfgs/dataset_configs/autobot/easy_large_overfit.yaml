@@ -1,0 +1,7 @@
+NAME: Dynamics
+DATA_PATH: /data/sashank/datasets/easy_large_overfit/data
+# DATA_PATH: data/biman_FFN/FFN 
+N_POINTS: 8192
+PC_PATH: /data/sashank/datasets/easy_large_overfit
+# PC_PATH: data/biman_FFN/samples 
+
