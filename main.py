@@ -7,6 +7,8 @@ import time
 import os
 import torch
 from tensorboardX import SummaryWriter
+import torch.multiprocessing
+torch.multiprocessing.set_sharing_strategy('file_system')
 
 def main():
     # args
